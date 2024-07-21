@@ -1,85 +1,12 @@
 import sys
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QPushButton, QLabel, QSpacerItem, QSizePolicy
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QFont, QFontMetrics, QImage, QPainterPath, QPixmap
-from PyQt5.QtCore import QTimer, Qt, QThread, pyqtSignal
+from PyQt5.QtCore import QTimer, Qt, QThread, pyqtSignal, QRect
 from pymavlink import mavutil
 from math import cos, sin, pi
 import cv2
 import numpy as np
 import requests
-
-# BatteryWidget sınıfı
-class BatteryWidget(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.battery_level = 0
-        self.initUI()
-
-    def initUI(self):
-        self.setGeometry(0, 0, 100, 60)
-        self.setWindowTitle('Battery Status')
-        self.setStyleSheet('background-color: lightgrey;')
-        self.show()
-
-    def update_battery_level(self, level):
-        self.battery_level = level
-        self.update()
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        self.drawBattery(painter)
-
-    def drawBattery(self, painter):
-        rect = self.rect()
-        painter.setBrush(Qt.NoBrush)
-
-        battery_width = 100
-        battery_height = 40
-        
-        center_x = rect.width() // 2
-        center_y = rect.height() // 2
-
-        battery_x = center_x - battery_width // 2
-        battery_y = center_y - battery_height // 2
-
-        pen = QPen(Qt.black, 3)
-        painter.setPen(pen)
-        painter.drawRect(battery_x, battery_y, battery_width, battery_height)
-
-        level = self.battery_level
-        if level == 0:
-            return
-
-        if level >= 75:
-            color = QColor(0, 100, 0)
-            segments = 4
-        elif level >= 50:
-            color = QColor(100, 238, 100)
-            segments = 3
-        elif level >= 25:
-            color = QColor(255, 165, 0)
-            segments = 2
-        else:
-            color = QColor(255, 0, 0)
-            segments = 1
-
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QBrush(color, Qt.SolidPattern))
-
-        segment_width = (battery_width // 4) - 8
-        segment_height = battery_height - 10
-        segment_spacing = (battery_width - (segment_width * 4)) // 5
-
-        for i in range(segments):
-            segment_x = battery_x + segment_spacing + i * (segment_width + segment_spacing)
-            segment_y = battery_y + 5
-            painter.drawRect(segment_x, segment_y, segment_width, segment_height)
-
-        painter.setPen(QPen(Qt.black))
-        painter.setFont(QFont("Armstrong", 12))
-        text_x = battery_x + 10
-        text_y = battery_y + 25
-        painter.drawText(text_x, text_y, f"% {self.battery_level}")
 
 # VerticalSpeedGaugeWidget sınıfı
 class VerticalSpeedGaugeWidget(QWidget):
@@ -431,36 +358,34 @@ class PixhawkInterface(QWidget):
 
         main_layout = QVBoxLayout()
 
-        # Sol üst köşe (Battery Widget ve Altitude ve Flight Time)
-        self.battery_widget = BatteryWidget()
-        
-        altitude_flight_time_layout = QVBoxLayout()
-        
+        # Sağ üst köşe (Altitude ve Flight Time)
+        top_right_layout = QVBoxLayout()
+
         self.altitude_label = QLabel('Altitude: -- m')
         self.altitude_label.setFont(QFont("Armstrong", 12))
         self.altitude_label.setStyleSheet('background-color: lightgrey; padding: 1px;')
         self.altitude_label.setFixedWidth(150)  # Genişliği sınırlandırıyoruz
-        
+
         self.flight_time_label = QLabel('Flight Time: -- s')
         self.flight_time_label.setFont(QFont("Armstrong", 12))
         self.flight_time_label.setStyleSheet('background-color: lightgrey; padding: 1px;')
         self.flight_time_label.setFixedWidth(150)  # Genişliği sınırlandırıyoruz
 
-        altitude_flight_time_layout.addWidget(self.altitude_label)
-        altitude_flight_time_layout.addWidget(self.flight_time_label)
+        top_right_layout.addWidget(self.altitude_label)
+        top_right_layout.addWidget(self.flight_time_label)
 
-        battery_altitude_layout = QHBoxLayout()
-        battery_altitude_layout.setSpacing(0)  # Boşlukları kaldırıyoruz
-        battery_altitude_layout.addWidget(self.battery_widget)
-        battery_altitude_layout.addLayout(altitude_flight_time_layout)
-        
+        # Bu layout'u sağ üst köşeye sabitle
+        top_right_widget = QWidget()
+        top_right_widget.setLayout(top_right_layout)
+        top_right_widget.setFixedWidth(150)
+        top_right_widget.setFixedHeight(80)
 
-        main_layout.addLayout(battery_altitude_layout)
-
+        # Ana layout'a top_right_widget'ı ekle
+        main_layout.addWidget(top_right_widget, alignment=Qt.AlignTop | Qt.AlignRight)
 
         # Video Stream
         self.video_widget = VideoStreamWidget(url="http://192.168.4.114:5000/video_feed")
-        self.video_widget.setFixedSize(800, 600)  # Daha büyük bir boyut ayarlıyoruz
+        self.video_widget.setFixedSize(1320, 600)  # Daha büyük bir boyut ayarlıyoruz
 
         main_layout.addWidget(self.video_widget)
 
@@ -469,15 +394,15 @@ class PixhawkInterface(QWidget):
         gauges_container_layout.setSpacing(0)  # Boşlukları kaldırıyoruz
 
         self.vertical_speed_gauge = VerticalSpeedGaugeWidget()
-        self.vertical_speed_gauge.setFixedSize(440, 300)
+        self.vertical_speed_gauge.setFixedSize(440, 250)
         self.vertical_speed_gauge.setContentsMargins(0, 0, 0, 0)  # Kenar boşluklarını kaldırıyoruz
 
         self.graph_widget = GraphWidget()
-        self.graph_widget.setFixedSize(440, 300)
+        self.graph_widget.setFixedSize(440, 250)
         self.graph_widget.setContentsMargins(0, 0, 0, 0)  # Kenar boşluklarını kaldırıyoruz
 
         self.air_speed_gauge = AirSpeedGaugeWidget()
-        self.air_speed_gauge.setFixedSize(440, 300)
+        self.air_speed_gauge.setFixedSize(440, 250)
         self.air_speed_gauge.setContentsMargins(0, 0, 0, 0)  # Kenar boşluklarını kaldırıyoruz
 
         # Gauges konumlarını ayarlamak için layout'a ekleyelim
@@ -595,9 +520,9 @@ class PixhawkInterface(QWidget):
                     battery_remaining = msg_sys_status.battery_remaining
                     if battery_remaining < 0:
                         battery_remaining = 0
-                    self.battery_widget.update_battery_level(battery_remaining)
+                    self.altitude_label.setText(f'Battery: {battery_remaining}%')
                 else:
-                    self.battery_widget.update_battery_level(0)
+                    self.altitude_label.setText('Battery: -- %')
 
             except Exception as e:
                 self.status_label.setText(f'Veri Hatasi: {str(e)}')
@@ -608,7 +533,3 @@ if __name__ == '__main__':
     ex = PixhawkInterface()
     ex.show()
     sys.exit(app.exec_())
-
-
-
-
