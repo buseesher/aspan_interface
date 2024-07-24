@@ -7,7 +7,8 @@ from math import cos, sin, pi
 import cv2
 import numpy as np
 import requests
-
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 
 class BatteryWidget(QWidget):
     def __init__(self):
@@ -16,9 +17,10 @@ class BatteryWidget(QWidget):
         self.initUI()
 
     def initUI(self):
-        self.setGeometry(100, 100, 100, 60)
+        self.setGeometry(100, 100, 120, 40)
         self.setWindowTitle('Battery Status')
         self.setStyleSheet('background-color: lightgrey;')
+        self.setFixedSize(120, 40)
         self.show()
 
     def update_battery_level(self, level):
@@ -42,7 +44,7 @@ class BatteryWidget(QWidget):
         battery_x = center_x - battery_width // 2
         battery_y = center_y - battery_height // 2
 
-        pen = QPen(Qt.black, 3)
+        pen = QPen(Qt.green, 3)
         painter.setPen(pen)
         painter.drawRect(battery_x, battery_y, battery_width, battery_height)
 
@@ -389,7 +391,6 @@ class VideoStreamWorker(QThread):
         self._run_flag = False
         self.wait()
 
-
 class VideoStreamWidget(QWidget):
     def __init__(self, url):
         super().__init__()
@@ -418,6 +419,58 @@ class VideoStreamWidget(QWidget):
         if not self.image.isNull():
             painter.drawImage(self.rect(), self.image)
 
+class LidarDataWorker(QThread):
+    lidar_data_received = pyqtSignal(list)
+
+    def __init__(self, ip):
+        super().__init__()
+        self.ip = ip
+        self._run_flag = True
+
+    def run(self):
+        while self._run_flag:
+            try:
+                response = requests.get(f'http://{self.ip}/lidar', timeout=5)  # Zaman aşımı 5 saniye olarak ayarlanmış
+                if response.status_code == 200:
+                    data = response.json()
+                    print(f"Lidar Data: {data}")  # Debug print
+                    self.lidar_data_received.emit(data)
+                else:
+                    print(f"Failed to get Lidar data: {response.status_code}")
+            except requests.exceptions.Timeout:
+                print(f"Connection to {self.ip} timed out.")
+            except Exception as e:
+                print(f'Error fetching Lidar data: {e}')
+            self.msleep(500)
+
+    def stop(self):
+        self._run_flag = False
+        self.wait()
+
+
+class LidarWidget(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.initUI()
+
+    def initUI(self):
+        self.figure = Figure()
+        self.canvas = FigureCanvas(self.figure)
+        self.ax = self.figure.add_subplot(111, polar=True)
+        self.ax.set_ylim(0, 10)
+        self.ax.set_xlim(-np.pi, np.pi)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.canvas)
+        self.setLayout(layout)
+
+    def update_lidar_data(self, data):
+        angles = np.linspace(-np.pi, np.pi, len(data))
+        self.ax.clear()
+        self.ax.plot(angles, data, 'b.')
+        self.ax.set_ylim(0, 10)
+        self.ax.set_xlim(-np.pi, np.pi)
+        self.canvas.draw()            
 
 class PixhawkInterface(QWidget):
     def __init__(self):
@@ -434,52 +487,65 @@ class PixhawkInterface(QWidget):
         self.setStyleSheet("background-color: #000714;")
 
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(0, 0, 0, 0)  # Kenar boşluklarını azaltıyoruz
-        main_layout.setSpacing(5)  # Boşlukları azaltıyoruz
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(5)
 
         # Video Stream
         self.video_widget = VideoStreamWidget(url="http://192.168.85.114:5000/video_feed")
-        self.video_widget.setFixedSize(1320, 640)  # Daha büyük bir boyut ayarlıyoruz
+        self.video_widget.setFixedSize(1320, 640)
 
         # Video widget'ı içeren layout'u oluştur
         video_layout = QVBoxLayout()
-        video_layout.setContentsMargins(0, 0, 0, 0)  # Kenar boşluklarını kaldırıyoruz
-        video_layout.setSpacing(0)  # Boşlukları kaldırıyoruz
+        video_layout.setContentsMargins(0, 0, 0, 0)
+        video_layout.setSpacing(0)
         video_layout.addWidget(self.video_widget)
 
         main_layout.addLayout(video_layout)
 
+                # Gauges ve Lidar widget'ını içeren layout'u oluştur
+        gauges_and_lidar_layout = QHBoxLayout()
+        gauges_and_lidar_layout.setContentsMargins(0, 0, 0, 0)
+        gauges_and_lidar_layout.setSpacing(0)
+
         # Gauges
-        gauges_container_layout = QHBoxLayout()
-        gauges_container_layout.setContentsMargins(0, 0, 0, 0)  # Kenar boşluklarını kaldırıyoruz
-        gauges_container_layout.setSpacing(0)  # Boşlukları kaldırıyoruz
+        gauges_container_layout = QHBoxLayout()  # Dikey değil yatay layout kullanıyoruz
+        gauges_container_layout.setContentsMargins(0, 0, 0, 0)
+        gauges_container_layout.setSpacing(0)
 
         self.vertical_speed_gauge = VerticalSpeedGaugeWidget()
         self.vertical_speed_gauge.setFixedSize(440, 320)
-        self.vertical_speed_gauge.setContentsMargins(0, 0, 0, 0)  # Kenar boşluklarını kaldırıyoruz
+        self.vertical_speed_gauge.setContentsMargins(0, 0, 0, 0)
 
         self.graph_widget = GraphWidget()
         self.graph_widget.setFixedSize(440, 320)
-        self.graph_widget.setContentsMargins(0, 0, 0, 0)  # Kenar boşluklarını kaldırıyoruz
+        self.graph_widget.setContentsMargins(0, 0, 0, 0)
 
         self.air_speed_gauge = AirSpeedGaugeWidget()
         self.air_speed_gauge.setFixedSize(440, 320)
-        self.air_speed_gauge.setContentsMargins(0, 0, 0, 0)  # Kenar boşluklarını kaldırıyoruz
+        self.air_speed_gauge.setContentsMargins(0, 0, 0, 0)
 
-        # Gauges konumlarını ayarlamak için layout'a ekleyelim
-        gauges_container_layout.addWidget(self.air_speed_gauge)
+        gauges_container_layout.addWidget(self.vertical_speed_gauge)  # İlk olarak vertical_speed_gauge
         gauges_container_layout.addWidget(self.graph_widget)
-        gauges_container_layout.addWidget(self.vertical_speed_gauge)
+        gauges_container_layout.addWidget(self.air_speed_gauge)  # Son olarak air_speed_gauge
 
         gauges_container = QWidget()
         gauges_container.setLayout(gauges_container_layout)
 
-        main_layout.addWidget(gauges_container, alignment=Qt.AlignLeft)  # Sola hizalayarak ekliyoruz
+        gauges_and_lidar_layout.addWidget(gauges_container, alignment=Qt.AlignLeft)
+
+
+
+        # Lidar Widget ekle
+        self.lidar_widget = LidarWidget()
+        self.lidar_widget.setFixedSize(440, 320)  # Boyutu uygun şekilde ayarlayın
+        gauges_and_lidar_layout.addWidget(self.lidar_widget, alignment=Qt.AlignRight)
+
+        main_layout.addLayout(gauges_and_lidar_layout)
 
         # Alt merkez (COM ve baud seçimi, bağlan düğmesi ve durum etiketi)
         connection_layout = QHBoxLayout()
-        connection_layout.setContentsMargins(10, 10, 10, 10)  # Kenar boşluklarını artırıyoruz
-        connection_layout.setSpacing(10)  # Boşlukları artırıyoruz
+        connection_layout.setContentsMargins(10, 10, 10, 10)
+        connection_layout.setSpacing(10)
 
         self.port_label = QLabel('PORT')
         self.port_label.setFont(QFont("Armstrong", 10))
@@ -515,10 +581,9 @@ class PixhawkInterface(QWidget):
         self.status_label = QLabel('NO CONNECTION')
         self.status_label.setFont(QFont("Armstrong", 10))
         self.status_label.setStyleSheet('color: white; background-color: #798499; padding:5px;')
-        self.status_label.setFixedSize(170, 30)  # Boyutu artırarak genişletelim
+        self.status_label.setFixedSize(170, 30)
         connection_layout.addWidget(self.status_label)
 
-        # Camera IP QLabel ve QComboBox ile QLineEdit'i ekle
         self.camera_ip_label = QLabel('IP adresi:')
         self.camera_ip_label.setFont(QFont("Armstrong", 10))
         self.camera_ip_label.setStyleSheet('color: #ffffff; padding:5px;')
@@ -537,28 +602,35 @@ class PixhawkInterface(QWidget):
         self.camera_ip_combo.currentTextChanged.connect(self.update_camera_ip)
         connection_layout.addWidget(self.camera_ip_combo)
 
-        # Altitude ve Flight Time QLabel'lerini ekle
-        self.altitude_label = QLabel('Altitude: 0')
+        self.altitude_label = QLabel('Altitude: ')
         self.altitude_label.setFont(QFont("Armstrong", 10))
         self.altitude_label.setStyleSheet('color: #ffffff; padding:5px;')
         connection_layout.addWidget(self.altitude_label)
 
-        self.flight_time_label = QLabel('Flight Time: 0')
+        self.altitude_value_label = QLabel('--- m')
+        self.altitude_value_label.setFont(QFont("Armstrong", 10))
+        self.altitude_value_label.setStyleSheet('color: #ffffff; padding:5px;')
+        connection_layout.addWidget(self.altitude_value_label)
+
+        self.flight_time_label = QLabel('Flight Time: ')
         self.flight_time_label.setFont(QFont("Armstrong", 10))
         self.flight_time_label.setStyleSheet('color: #ffffff; padding:5px;')
         connection_layout.addWidget(self.flight_time_label)
 
-        # Battery QLabel'i ekle
+        self.flight_time_value_label = QLabel('--- h')
+        self.flight_time_value_label.setFont(QFont("Armstrong", 10))
+        self.flight_time_value_label.setStyleSheet('color: #ffffff; padding:5px;')
+        connection_layout.addWidget(self.flight_time_value_label)
+
         self.battery_label = QLabel('Battery')
         self.battery_label.setFont(QFont("Armstrong", 10))
         self.battery_label.setStyleSheet('color: #ffffff; padding:5px;')
-        self.battery_label.setFixedSize(90, 30)  # Boyutları ayarlayalım
+        self.battery_label.setFixedSize(90, 30)
         connection_layout.addWidget(self.battery_label)
 
-        # Battery Widget ekle
         self.battery_widget = BatteryWidget()
-        self.battery_widget.setFixedSize(120, 40)  # Yüksekliği azaltarak hizalayalım
-        connection_layout.addWidget(self.battery_widget, alignment=Qt.AlignVCenter)  # Orta hizalama ekleyelim
+        self.battery_widget.setFixedSize(120, 40)
+        connection_layout.addWidget(self.battery_widget, alignment=Qt.AlignVCenter)
 
         connection_widget = QWidget()
         connection_widget.setLayout(connection_layout)
@@ -569,9 +641,18 @@ class PixhawkInterface(QWidget):
 
         self.setLayout(main_layout)
 
-        # Timer for fetching data
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_data)
+
+        self.lidar_worker = LidarDataWorker(ip="192.168.85.114:5001")
+        self.lidar_worker.lidar_data_received.connect(self.lidar_widget.update_lidar_data)
+        self.lidar_worker.start()
+
+    def update_altitude(self, altitude):
+        self.altitude_value_label.setText(f'{altitude} m')
+
+    def update_flight_time(self, flight_time):
+        self.flight_time_value_label.setText(f'{flight_time} h')
 
     def update_camera_ip(self):
         ip = self.camera_ip_combo.currentText()
@@ -588,16 +669,15 @@ class PixhawkInterface(QWidget):
             self.status_label.setText(f'CONNECTED ({port} @ {baud})')
             self.status_label.setStyleSheet('color: white; background-color: #228B22; padding:5px;')
 
-            # Veri akışını başlat
             self.connection.mav.request_data_stream_send(
                 self.connection.target_system,
                 self.connection.target_component,
                 mavutil.mavlink.MAV_DATA_STREAM_ALL,
-                10,  # 10 Hz
+                10,
                 1
             )
 
-            self.timer.start(200)  # 200 ms'de bir veri al
+            self.timer.start(200)
         except Exception as e:
             self.status_label.setText(f'Hata: {str(e)}')
             self.status_label.setStyleSheet('color: white; background-color: #B22222; padding:5px;')
@@ -605,7 +685,6 @@ class PixhawkInterface(QWidget):
     def update_data(self):
         if self.connection:
             try:
-                # VFR_HUD mesajını al
                 msg = self.connection.recv_match(type='VFR_HUD', blocking=True, timeout=0.5)
                 if msg:
                     airspeed = msg.airspeed
@@ -613,19 +692,13 @@ class PixhawkInterface(QWidget):
                     vertical_speed = msg.climb
                     self.air_speed_gauge.update_value(airspeed)
                     self.vertical_speed_gauge.update_value(vertical_speed)
-
-                    # Altitude QLabel güncellemesi
-                    self.altitude_label.setText(f'Altitude: {altitude}')
-
-                    # Flight time hesabı ve QLabel güncellemesi
-                    flight_time = self.connection.time_since(self.connection.last_heartbeat())
-                    flight_time_formatted = f'{int(flight_time // 60)}:{int(flight_time % 60):02}'
-                    self.flight_time_label.setText(f'Flight Time: {flight_time_formatted}')
+                    self.update_altitude(altitude)
+                    flight_time = self.connection.time_since(self.connection.last_heartbeat()) / 3600
+                    self.update_flight_time(round(flight_time, 2))
                 else:
                     self.air_speed_gauge.update_value(0)
                     self.vertical_speed_gauge.update_value(0)
 
-                # ATTITUDE mesajını al
                 msg_attitude = self.connection.recv_match(type='ATTITUDE', blocking=True, timeout=0.5)
                 if msg_attitude:
                     roll = msg_attitude.roll * (180 / pi)
@@ -634,7 +707,6 @@ class PixhawkInterface(QWidget):
                 else:
                     self.graph_widget.update_graph(0, 0)
 
-                # SYS_STATUS mesajını al
                 msg_sys_status = self.connection.recv_match(type='SYS_STATUS', blocking=True, timeout=0.5)
                 if msg_sys_status:
                     battery_remaining = msg_sys_status.battery_remaining
